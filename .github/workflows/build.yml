@@ -1,0 +1,86 @@
+name: Build Super Fusion DLL
+
+on:
+  workflow_dispatch:   # Solo se corre cuando TÚ le das a Run workflow
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Check for reference DLLs
+        id: check
+        run: |
+          echo "Checking libs folder..."
+          ls -la libs/ || true
+          if [ -f "libs/MelonLoader.dll" ] && [ -f "libs/BoneLib.dll" ]; then
+            echo "has_refs=true" >> $GITHUB_OUTPUT
+            echo "Reference DLLs found. Will attempt full build."
+          else
+            echo "has_refs=false" >> $GITHUB_OUTPUT
+            echo "No reference DLLs found. Creating source package only."
+          fi
+
+      - name: Create project files
+        run: |
+          mkdir -p src
+          cp SuperFusion.cs src/ || true
+          cat > SuperFusion.csproj << 'INNER'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <LangVersion>latest</LangVersion>
+              <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+              <OutputType>Library</OutputType>
+              <AssemblyName>SuperFusion</AssemblyName>
+              <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+            </PropertyGroup>
+            <ItemGroup>
+              <Reference Include="MelonLoader">
+                <HintPath>libs/MelonLoader.dll</HintPath>
+                <Private>false</Private>
+              </Reference>
+              <Reference Include="BoneLib">
+                <HintPath>libs/BoneLib.dll</HintPath>
+                <Private>false</Private>
+              </Reference>
+              <Reference Include="UnityEngine.CoreModule">
+                <HintPath>libs/UnityEngine.CoreModule.dll</HintPath>
+                <Private>false</Private>
+              </Reference>
+              <Reference Include="UnityEngine">
+                <HintPath>libs/UnityEngine.dll</HintPath>
+                <Private>false</Private>
+              </Reference>
+            </ItemGroup>
+          </Project>
+          INNER
+
+      - name: Build DLL (when references exist)
+        if: steps.check.outputs.has_refs == 'true'
+        run: |
+          dotnet build SuperFusion.csproj -c Release -o out
+          ls -la out/
+          echo "Build finished."
+
+      - name: Package source (when no references)
+        if: steps.check.outputs.has_refs == 'false'
+        run: |
+          mkdir -p out
+          echo "No MelonLoader.dll / BoneLib.dll found in libs/" > out/README.txt
+          echo "Upload the reference DLLs to the libs/ folder and re-run the workflow." >> out/README.txt
+          cp SuperFusion.cs out/ || true
+          cp SuperFusion.csproj out/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SuperFusion-Build
+          path: out/
